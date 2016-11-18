@@ -37,10 +37,6 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name=".NfcService"
-            android:exported="false" />
-
     </application>
 
 </manifest>

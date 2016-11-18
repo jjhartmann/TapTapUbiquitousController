@@ -9,6 +9,7 @@ import android.nfc.NdefMessage;
 import android.nfc.NdefRecord;
 import android.nfc.NfcAdapter;
 import android.os.Parcelable;
+import android.os.PersistableBundle;
 import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -25,9 +26,12 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         LocalBroadcastManager.getInstance(this).registerReceiver(resultReceiver,
                 new IntentFilter(Constants.BROADCAST_ACTION_FROM_SERVICE));
-        onNewIntent(getIntent());
-    }
 
+        // Created from scanning tag
+        if(savedInstanceState == null){
+            onNewIntent(getIntent());
+        }
+    }
 
     // Handles new intents
     @Override
@@ -36,11 +40,7 @@ public class MainActivity extends AppCompatActivity {
         int tagId = getTagId(intent);
         Log.d("tagId", Integer.toString(tagId));
         if(tagId!=0) {
-            // setup to start service
-            Intent serviceIntent = new Intent(this, NfcService.class);
-            serviceIntent.putExtra(Constants.EXTENDED_DATA_STATUS, tagId);
-            // start service
-            this.startService(serviceIntent);
+            new NfcTask(getApplicationContext()).execute(tagId);
         }
     }
 
@@ -76,6 +76,7 @@ public class MainActivity extends AppCompatActivity {
         return 0; // could not get id
     }
 
+    // receives network info from async task
     private BroadcastReceiver resultReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
