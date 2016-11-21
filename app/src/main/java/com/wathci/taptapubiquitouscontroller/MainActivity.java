@@ -11,14 +11,17 @@ import android.nfc.NfcAdapter;
 import android.os.Parcelable;
 import android.os.PersistableBundle;
 import android.support.v4.content.LocalBroadcastManager;
+import android.support.v4.view.MotionEventCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.widget.Toast;
 
 import java.io.UnsupportedEncodingException;
 
 public class MainActivity extends AppCompatActivity {
+    private boolean screenTouched = false; // true when user is touching screen
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
                 try{
                     idStr = new String(payload, "US-ASCII"); // convert payload to str
                 } catch (UnsupportedEncodingException e){
+                    Log.d("exceptionMain", e.toString());
                 }
                 if(!idStr.equals("")) {
                     return Integer.parseInt(idStr);
@@ -76,12 +80,35 @@ public class MainActivity extends AppCompatActivity {
         return 0; // could not get id
     }
 
+    /*
+    Sets screenTouched to true when user is touching screen
+    Sets screenTouched to false when user is not touching screen
+     */
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        int action = MotionEventCompat.getActionMasked(event);
+        switch(action){
+            case(MotionEvent.ACTION_DOWN):
+                Log.d("motionEvent", "down");
+                screenTouched = true;
+                return true;
+            case(MotionEvent.ACTION_UP):
+                Log.d("motionEvent", "up");
+                screenTouched = false;
+                return true;
+            default:
+                Log.d("motionEvent", "other motion event");
+                return super.onTouchEvent(event);
+        }
+
+    }
+
     // receives network info from async task
     private BroadcastReceiver resultReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             String result = intent.getStringExtra(Constants.EXTENDED_DATA_STATUS);
-            Log.d("resultMain", result);
+            Log.d("gotResult", result);
         }
     };
 
