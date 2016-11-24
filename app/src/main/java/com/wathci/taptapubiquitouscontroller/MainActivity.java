@@ -21,7 +21,6 @@ import android.widget.Toast;
 import java.io.UnsupportedEncodingException;
 
 public class MainActivity extends AppCompatActivity {
-    private boolean screenTouched = false; // true when user is touching screen
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,7 +45,6 @@ public class MainActivity extends AppCompatActivity {
             new NfcTask(getApplicationContext()).execute(tagId);
         }
     }
-
 
     /*
     params: intent is incoming Nfc intent
@@ -80,35 +78,13 @@ public class MainActivity extends AppCompatActivity {
         return 0; // could not get id
     }
 
-    /*
-    Sets screenTouched to true when user is touching screen
-    Sets screenTouched to false when user is not touching screen
-     */
-    @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        int action = MotionEventCompat.getActionMasked(event);
-        switch(action){
-            case(MotionEvent.ACTION_DOWN):
-                Log.d("motionEvent", "down");
-                screenTouched = true;
-                return true;
-            case(MotionEvent.ACTION_UP):
-                Log.d("motionEvent", "up");
-                screenTouched = false;
-                return true;
-            default:
-                Log.d("motionEvent", "other motion event");
-                return super.onTouchEvent(event);
-        }
-
-    }
-
     // receives network info from async task
     private BroadcastReceiver resultReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String result = intent.getStringExtra(Constants.EXTENDED_DATA_STATUS);
-            Log.d("gotResult", result);
+            ScanResult result = (ScanResult) intent.getSerializableExtra(
+                    Constants.EXTENDED_RESULT_FROM_SERVER);
+            Log.d("gotResult", result.toString());
         }
     };
 

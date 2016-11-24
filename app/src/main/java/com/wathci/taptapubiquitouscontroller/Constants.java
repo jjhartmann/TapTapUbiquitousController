@@ -11,7 +11,23 @@ public class Constants {
      */
     public static final String BROADCAST_ACTION_FROM_SERVICE =
             "com.wathci.taptapubiquitouscontroller.BROADCAST_FROM_SERVICE";
-    public static final String EXTENDED_DATA_STATUS =
-            "com.wathci.taptapubiquitouscontroller.STATUS";
+    public static final String EXTENDED_RESULT_FROM_SERVER =
+            "com.wathci.taptapubiquitouscontroller.RESULT_FROM_SERVER";
 
+    /*
+    Device state
+     */
+    public static final int DEVICE_ON = 1;
+    public static final int DEVICE_OFF = 0;
+
+    /*
+    Device status
+     */
+    public static final int SUCCESS = 1;
+    public static final int FAILURE = 0;
+
+    /*
+    XML
+     */
+    public static final String XML_START_TAG = "ReturnFormat";
 }
