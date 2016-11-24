@@ -158,10 +158,65 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
     private ScanResult readResult(){
         ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
         try{
-            InputStream inputStream = socket.getInputStream(); // input stream from socket
-            // Spin until stream is ready to be read
-            while(inputStream.available() == 0){
-            }
+            InputStream inputStream = socket.getInputStream();
+            String readStr = readString(inputStream); // Entire string sent. Should be Xml string
+            inputStream.close();
+            result = parseXml(readStr); // parse the Xml string readStr
+        } catch (Exception e){
+            Log.d("readResult", e.toString());
+        }
+        return result;
+    }
+
+    private ScanResult readTestResult(){
+        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+        // string to be read
+        String fakeInput = "<ReturnFormat>" +
+                "<friendlyName>outlet</friendlyName>" +
+                "<state>2</state>" +
+                "<status>2</status>" +
+                "</ReturnFormat>" + (char)4;
+        try{
+            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
+            String readStr = readString(inputStream); // Entire string sent. Should be Xml string
+            inputStream.close();
+            result = parseXml(readStr); // parse the Xml string readStr
+        } catch (Exception e){
+            Log.d("readResult", e.toString());
+        }
+        return result;
+    }
+
+    /*
+    Reads resulting message sent back from server.
+    Returns: ScanResult object containing resulting info
+     */
+
+    /*
+    Reads from inputStream until the ASCII end of transmission character is received
+    Returns resulting string
+     */
+    private String readString(InputStream inputStream) throws IOException {
+        StringBuilder readString = new StringBuilder();
+        char nextByte = (char) inputStream.read();
+        while (nextByte != (char) Constants.RECEIVE_EOF) {
+            readString.append(nextByte);
+            nextByte = (char) inputStream.read();
+        }
+        Log.d("readTestResult", readString.toString());
+        return readString.toString();
+    }
+
+    /*
+    Parses the Xml string read string and returns the resulting ScanResult object
+    Input: readString is a properly formatted Xml string
+    Returns: Resulting ScanResult object
+
+     */
+    private ScanResult parseXml(String readString){
+        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+        try{
+            InputStream inputStream = new ByteArrayInputStream(readString.getBytes());
 
             // make xml parser
             XmlPullParserFactory xmlPullParserFactory = XmlPullParserFactory.newInstance();
@@ -174,40 +229,6 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
             inputStream.close();
         } catch (Exception e){
             Log.d("backgroundReadResult", e.toString());
-        }
-        return result;
-    }
-
-    /*
-    Fakes functionality of readResult for testing purposes when server is unavailable.
-    Creates an xml string to be read and a parser that reads it
-    Returns: ScanResult object with resulting info
-     */
-    private ScanResult readTestResult(){
-        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
-
-        // string to be read
-        String fakeInput = "<ReturnFormat>" +
-                "<friendlyName>outlet</friendlyName>" +
-                "<state>2</state>" +
-                "<status>2</status>" +
-                "</ReturnFormat>";
-
-        try {
-            // make string stream
-            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
-
-            // make xml parser
-            XmlPullParserFactory xmlPullParserFactory = XmlPullParserFactory.newInstance();
-            XmlPullParser myParser = xmlPullParserFactory.newPullParser();
-            myParser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false); // no namespace
-            myParser.setInput(inputStream, null);
-
-            // read from parser
-            result = getResult(myParser);
-            inputStream.close();
-        } catch (Exception e){
-            Log.d("backgroundFake", e.toString());
         }
         return result;
     }
@@ -267,4 +288,7 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
         ScanResult result = new ScanResult(friendlyName, state, status);
         return result;
     }
+
+
+
 }

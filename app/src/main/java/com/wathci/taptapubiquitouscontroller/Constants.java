@@ -30,4 +30,5 @@ public class Constants {
     XML
      */
     public static final String XML_START_TAG = "ReturnFormat";
+    public static final int RECEIVE_EOF = 4; // using this as EOF when receiving
 }
