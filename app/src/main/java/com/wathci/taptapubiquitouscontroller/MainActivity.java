@@ -21,11 +21,11 @@ import android.widget.Toast;
 import java.io.UnsupportedEncodingException;
 
 public class MainActivity extends AppCompatActivity {
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        Log.d("onCreate", "called on create");
         LocalBroadcastManager.getInstance(this).registerReceiver(resultReceiver,
                 new IntentFilter(Constants.BROADCAST_ACTION_FROM_SERVICE));
 
@@ -35,14 +35,21 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onPostResume(){
+        super.onPostResume();
+        Log.d("onPostResume", "called on post resume");
+    }
+
     // Handles new intents
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         int tagId = getTagId(intent);
         Log.d("tagId", Integer.toString(tagId));
-        if(tagId!=0) {
-            new NfcTask(getApplicationContext()).execute(tagId);
+        if (tagId != 0) {
+            new NfcTask(getApplicationContext(), Constants.ACCEL_TRHESHOLD,
+                    Constants.MILLIS_TO_WAIT).execute(tagId);
         }
     }
 
@@ -87,6 +94,7 @@ public class MainActivity extends AppCompatActivity {
             Log.d("gotResult", result.toString());
         }
     };
+
 
     @Override
     protected void onDestroy() {

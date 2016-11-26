@@ -2,6 +2,10 @@ package com.wathci.taptapubiquitouscontroller;
 
 import android.content.Context;
 import android.content.Intent;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.AsyncTask;
 import android.provider.Settings;
 import android.support.v4.content.LocalBroadcastManager;
@@ -21,24 +25,59 @@ import java.net.InetAddress;
 import java.net.Socket;
 
 import static android.R.attr.type;
+import static android.content.Context.SENSOR_SERVICE;
 import static org.xmlpull.v1.XmlPullParser.TYPES;
 
 /**
  * Created by Lisa on 11/18/2016.
  */
 
-public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
+public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements SensorEventListener{
     private Context appContext;
     private static final int port = 11003;
     private static final String ipAddr = "192.168.1.139";
     private InetAddress addr;
     private Socket socket;
-    public NfcTask(Context context){
+
+    // for accelerometer stuff
+    private boolean overThreshold; // will be true if magnitude of accel data passes threshold
+    private double threshold; // threshold for magnitude of accel data
+    private long millisToWait; // time to wait to detect motion
+    private long startTime; // start time of task
+    Context myContext;
+    SensorManager sm;
+    Sensor accelerometer;
+
+    public NfcTask(Context context, double threshold, long millisToWait){
         appContext = context;
+        this.threshold = threshold;
+        this.millisToWait = millisToWait;
+        overThreshold = false;
+        startTime = System.currentTimeMillis();
     }
 
+    /***********  DO IN BACKGROUND AND HELPERS***********/
     @Override
     protected ScanResult doInBackground(Integer... params) {
+        setupAccel();
+        return doSocket(params);
+    }
+
+    /*
+    Sets up accelerometer stuff
+     */
+    private void setupAccel(){
+        sm = (SensorManager)appContext.getSystemService(SENSOR_SERVICE);
+        accelerometer = sm.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION);
+        sm.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+    }
+
+    /*
+    Opens socket, sends data, receives data, returns result.
+     */
+    private ScanResult doSocket(Integer[] params){
+
+        // socket stuff
         ScanResult result;
         Log.d("background", "start");
 
@@ -58,7 +97,9 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
      */
     private ScanResult actualScan(int tagId, String androidId){
         openSocket();
-        String toSend = getStringToSend(tagId, androidId); // get xml string
+        waitForAccel();
+        Log.d("overThreshold", Boolean.toString(overThreshold));
+        String toSend = getStringToSend(tagId, androidId, overThreshold); // get xml string
         sendString(toSend); // send it
         ScanResult result = readResult(); // get result
 
@@ -80,39 +121,41 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
     }
 
     /*
-    Testing sending and receiving when server is unavailable
-     */
-    private ScanResult testScan(int tagId, String androidId){
-
-/*        // simulating 3 second delay
-        long startTime = System.currentTimeMillis();
-        long currTime = System.currentTimeMillis();
-        long len = 3000;
-        while(currTime - startTime < len){
-            currTime = System.currentTimeMillis();
-        }*/
-
-        ScanResult result = readTestResult();
-        Log.d("background", "finished");
-        return result;
+    Opens socket for read/write.
+    Note that async tasks are run sequentially so we will not be interrupted by work
+    for another tag
+    */
+    private void openSocket(){
+        try{
+            addr = InetAddress.getByName(ipAddr);
+            socket = new Socket(addr, port);
+        } catch (Exception e){
+            Log.d("exceptionOpenSocket", e.toString());
+        }
     }
 
-    @Override
-    protected void onPostExecute(ScanResult result) {
-        super.onPostExecute(result);
-        Intent resultIntent = new Intent(Constants.BROADCAST_ACTION_FROM_SERVICE);
-        resultIntent.putExtra(Constants.EXTENDED_RESULT_FROM_SERVER, result);
-        LocalBroadcastManager.getInstance(appContext).sendBroadcast(resultIntent);
+    /*
+    Spins until millisToWait time has passed since thread started to give user enough
+    time to pick up phone and trigger overThreshold
+     */
+    private void waitForAccel(){
+        long currentTime = System.currentTimeMillis();
+        while(currentTime - startTime < millisToWait){
+            currentTime = System.currentTimeMillis();
+        }
     }
 
     /*
     Returns xml string to be sent to server
     Input: tagId is the id of the tag that was scanned
            androidId is the id of the device
+           removedPhone is true if phone was removed from tag, false otherwise
      */
-    private String getStringToSend(int tagId, String androidId){
+    private String getStringToSend(int tagId, String androidId, Boolean removedPhone){
+        String actionType = getActionType(removedPhone);
+
         String result = "<ProtocolFormat>" +
-                "<actionType>" + "binarySwitch" + "</actionType>" +
+                "<actionType>" + actionType + "</actionType>" +
                 "<actionValue>" + "0" + "</actionValue>" +
                 "<clientID>" + androidId + "</clientID>" +
                 "<deviceID>" + Integer.toString(tagId) + "</deviceID>" +
@@ -121,16 +164,13 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
     }
 
     /*
-    Opens socket for read/write.
-    Note that async tasks are run sequentially so we will not be interrupted by work
-    for another tag
- */
-    private void openSocket(){
-        try{
-            addr = InetAddress.getByName(ipAddr);
-            socket = new Socket(addr, port);
-        } catch (Exception e){
-            Log.d("exceptionOpenSocket", e.toString());
+    Returns actionType associated with the value of removedPhone
+     */
+    private String getActionType(Boolean removedPhone){
+        if(removedPhone){
+            return "getInfo";
+        } else {
+            return "binarySwitch";
         }
     }
 
@@ -151,6 +191,7 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
         }
     }
 
+
     /*
     Reads resulting message sent back from server.
     Returns: ScanResult object containing resulting info
@@ -168,29 +209,6 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
         return result;
     }
 
-    private ScanResult readTestResult(){
-        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
-        // string to be read
-        String fakeInput = "<ReturnFormat>" +
-                "<friendlyName>outlet</friendlyName>" +
-                "<state>2</state>" +
-                "<status>2</status>" +
-                "</ReturnFormat>" + (char)4;
-        try{
-            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
-            String readStr = readString(inputStream); // Entire string sent. Should be Xml string
-            inputStream.close();
-            result = parseXml(readStr); // parse the Xml string readStr
-        } catch (Exception e){
-            Log.d("readResult", e.toString());
-        }
-        return result;
-    }
-
-    /*
-    Reads resulting message sent back from server.
-    Returns: ScanResult object containing resulting info
-     */
 
     /*
     Reads from inputStream until the ASCII end of transmission character is received
@@ -289,6 +307,71 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> {
         return result;
     }
 
+    @Override
+    protected void onPostExecute(ScanResult result) {
+        super.onPostExecute(result);
+        sm.unregisterListener(this);
+        Intent resultIntent = new Intent(Constants.BROADCAST_ACTION_FROM_SERVICE);
+        resultIntent.putExtra(Constants.EXTENDED_RESULT_FROM_SERVER, result);
+        LocalBroadcastManager.getInstance(appContext).sendBroadcast(resultIntent);
+    }
 
+    /********** TO TEST **********/
 
+        /*
+    Testing sending and receiving when server is unavailable
+     */
+    private ScanResult testScan(int tagId, String androidId){
+
+/*        // simulating 3 second delay
+        long startTime = System.currentTimeMillis();
+        long currTime = System.currentTimeMillis();
+        long len = 3000;
+        while(currTime - startTime < len){
+            currTime = System.currentTimeMillis();
+        }*/
+        waitForAccel();
+        Log.d("overThreshold", Boolean.toString(overThreshold));
+        ScanResult result = readTestResult();
+        Log.d("background", "finished");
+        return result;
+    }
+
+    private ScanResult readTestResult(){
+        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+        // string to be read
+        String fakeInput = "<ReturnFormat>" +
+                "<friendlyName>outlet</friendlyName>" +
+                "<state>2</state>" +
+                "<status>2</status>" +
+                "</ReturnFormat>" + (char)4;
+        try{
+            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
+            String readStr = readString(inputStream); // Entire string sent. Should be Xml string
+            inputStream.close();
+            result = parseXml(readStr); // parse the Xml string readStr
+        } catch (Exception e){
+            Log.d("readResult", e.toString());
+        }
+        return result;
+    }
+
+    /********** ACCELEROMETER **********/
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        float x = event.values[0];
+        float y = event.values[1];
+        float z = event.values[2];
+        double scalar = Math.sqrt(x*x + y*y + z*z);
+        Log.d("scalar", Double.toString(scalar));
+        if(scalar > threshold){
+            overThreshold = true;
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+    }
 }

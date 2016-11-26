@@ -15,6 +15,14 @@ public class Constants {
             "com.wathci.taptapubiquitouscontroller.RESULT_FROM_SERVER";
 
     /*
+    Accelerometer
+     */
+    // threshold for magnitude of acceleration
+    public static final double ACCEL_TRHESHOLD = 0.75;
+    // time to wait from scanning tag for movement
+    public static final long MILLIS_TO_WAIT = 1000;
+
+    /*
     Device state
      */
     public static final int DEVICE_ON = 1;
