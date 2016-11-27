@@ -39,4 +39,11 @@ public class Constants {
      */
     public static final String XML_START_TAG = "ReturnFormat";
     public static final int RECEIVE_EOF = 4; // using this as EOF when receiving
+
+    /*
+    Encryption
+     */
+    public static final String CIPHER_TRANSFORMATION = "AES/CBC/PKCS5Padding"; // AES 128
+    public static final String ENCRYPTION_ALGO = "AES";
+    public static final int IV_BYTES = 16;
 }

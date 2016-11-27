@@ -17,14 +17,30 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlPullParserFactory;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
+import java.util.Random;
+
+import javax.crypto.Cipher;
+import javax.crypto.CipherInputStream;
+import javax.crypto.CipherOutputStream;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import static android.R.attr.type;
+import static android.R.id.message;
 import static android.content.Context.SENSOR_SERVICE;
 import static org.xmlpull.v1.XmlPullParser.TYPES;
 
@@ -33,11 +49,16 @@ import static org.xmlpull.v1.XmlPullParser.TYPES;
  */
 
 public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements SensorEventListener{
+    // sockets
     private Context appContext;
     private static final int port = 11003;
     private static final String ipAddr = "192.168.1.139";
     private InetAddress addr;
     private Socket socket;
+
+    //encryption
+    private byte[] key; // encryption key
+    private byte[] iv; // iv
 
     // for accelerometer stuff
     private boolean overThreshold; // will be true if magnitude of accel data passes threshold
@@ -54,6 +75,14 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
         this.millisToWait = millisToWait;
         overThreshold = false;
         startTime = System.currentTimeMillis();
+
+        // placeholder code for key
+        for(int i = 0; i < key.length; i++){
+            key[i] = (byte)i;
+        }
+        iv = new byte[Constants.IV_BYTES];
+        Random random = new Random();
+        random.nextBytes(iv);
     }
 
     /***********  DO IN BACKGROUND AND HELPERS***********/
@@ -158,7 +187,7 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
                 "<actionType>" + actionType + "</actionType>" +
                 "<actionValue>" + "0" + "</actionValue>" +
                 "<clientID>" + androidId + "</clientID>" +
-                "<deviceID>" + Integer.toString(tagId) + "</deviceID>" +
+                "<tagID>" + Integer.toString(tagId) + "</tagID>" +
                 "</ProtocolFormat>" + "<EOF>";
         return result;
     }
@@ -168,9 +197,9 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
      */
     private String getActionType(Boolean removedPhone){
         if(removedPhone){
-            return "getInfo";
-        } else {
             return "binarySwitch";
+        } else {
+            return "getInfo";
         }
     }
 
@@ -179,11 +208,17 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
      */
     private void sendString(String toSend){
         try {
+            Cipher cipher = Cipher.getInstance(Constants.CIPHER_TRANSFORMATION);
+            SecretKeySpec secretKeySpec = new SecretKeySpec(key, Constants.ENCRYPTION_ALGO);
+            IvParameterSpec ivParameterSpec = new IvParameterSpec(iv);
+            cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, ivParameterSpec);
             OutputStream outputStream= socket.getOutputStream();
-            PrintWriter printWriter = new PrintWriter(outputStream, true);
-            printWriter.println(toSend);
-
-            printWriter.close(); // REMOVE THIS WHEN READING
+            sendIv(outputStream); // send iv unencrypted
+            CipherOutputStream cipherOutputStream = new CipherOutputStream(outputStream, cipher);
+            byte[] messageBytes = toSend.getBytes("UTF-8");
+            cipherOutputStream.write(messageBytes);
+            cipherOutputStream.flush();
+            cipherOutputStream.close();
             outputStream.close();
         }
         catch (Exception e){
@@ -191,6 +226,16 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
         }
     }
 
+    /*
+    Sends iv to stream unencrypted
+    MIGHT HAVE TO FORMAT THIS MESSAGE BETTER
+     */
+    public void sendIv(OutputStream outputStream){
+        String ivString = "<iv>" + Arrays.toString(iv) + "</iv><EOF>";
+        PrintWriter printWriter = new PrintWriter(outputStream, true);
+        printWriter.println(ivString);
+        printWriter.close();
+    }
 
     /*
     Reads resulting message sent back from server.
@@ -200,7 +245,9 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
         ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
         try{
             InputStream inputStream = socket.getInputStream();
-            String readStr = readString(inputStream); // Entire string sent. Should be Xml string
+            byte[] serverIv = new byte[Constants.IV_BYTES]; // iv server used to encrypt
+            serverIv = getIv(inputStream);
+            String readStr = readString(inputStream, serverIv); // Entire string sent. Should be Xml string
             inputStream.close();
             result = parseXml(readStr); // parse the Xml string readStr
         } catch (Exception e){
@@ -209,17 +256,41 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
         return result;
     }
 
+    /*
+    reads 16 bytes from server and returns them
+     */
+    private byte[] getIv(InputStream inputStream){
+        byte[] iv = new byte[Constants.IV_BYTES];
+        try{
+            // reads into iv
+            if(inputStream.read(iv) != Constants.IV_BYTES){
+                throw(new Exception("incorrect iv length read"));
+            }
+        } catch(Exception e){
+            Log.d("getIv", e.toString());
+        }
+        return iv;
+    }
 
     /*
     Reads from inputStream until the ASCII end of transmission character is received
+    Params: inputStream is stream to read from
+            serverIv is the iv that was used to encode the message
     Returns resulting string
      */
-    private String readString(InputStream inputStream) throws IOException {
+    private String readString(InputStream inputStream, byte[] serverIv) throws IOException,
+            NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException,
+            InvalidAlgorithmParameterException{
+        Cipher cipher = Cipher.getInstance(Constants.CIPHER_TRANSFORMATION);
+        SecretKeySpec secretKeySpec = new SecretKeySpec(key, Constants.ENCRYPTION_ALGO);
+        IvParameterSpec ivParameterSpec = new IvParameterSpec(serverIv);
+        cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, ivParameterSpec);
+        CipherInputStream cipherInputStream = new CipherInputStream(inputStream, cipher);
         StringBuilder readString = new StringBuilder();
         char nextByte = (char) inputStream.read();
         while (nextByte != (char) Constants.RECEIVE_EOF) {
             readString.append(nextByte);
-            nextByte = (char) inputStream.read();
+            nextByte = (char) cipherInputStream.read();
         }
         Log.d("readTestResult", readString.toString());
         return readString.toString();
@@ -346,10 +417,10 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
                 "<status>2</status>" +
                 "</ReturnFormat>" + (char)4;
         try{
-            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
+/*            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
             String readStr = readString(inputStream); // Entire string sent. Should be Xml string
-            inputStream.close();
-            result = parseXml(readStr); // parse the Xml string readStr
+            inputStream.close();*/
+            result = parseXml(fakeInput.substring(0, fakeInput.length()-1));
         } catch (Exception e){
             Log.d("readResult", e.toString());
         }
