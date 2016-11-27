@@ -7,6 +7,14 @@ package com.wathci.taptapubiquitouscontroller;
 public class Constants {
 
     /*
+    Testing
+     */
+    // true when actually connecting to server
+    public static final boolean IN_SERVER_MODE = false;
+    // true when testing, false when not. Use for logs.
+    public static final boolean IN_TEST_MODE = true;
+
+    /*
     Service to activity
      */
     public static final String BROADCAST_ACTION_FROM_SERVICE =
@@ -38,7 +46,7 @@ public class Constants {
     XML
      */
     public static final String XML_START_TAG = "ReturnFormat";
-    public static final int RECEIVE_EOF = 4; // using this as EOF when receiving
+    public static final byte RECEIVE_EOF = 4; // using this as EOF when receiving
 
     /*
     Encryption

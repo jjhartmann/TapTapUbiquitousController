@@ -2,6 +2,7 @@ package com.wathci.taptapubiquitouscontroller;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Resources;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -16,6 +17,7 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlPullParserFactory;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -28,7 +30,14 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.KeyManagementException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.Random;
 
@@ -38,10 +47,17 @@ import javax.crypto.CipherOutputStream;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import javax.net.SocketFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManagerFactory;
 
+import static android.R.attr.key;
 import static android.R.attr.type;
 import static android.R.id.message;
 import static android.content.Context.SENSOR_SERVICE;
+import static android.view.View.X;
 import static org.xmlpull.v1.XmlPullParser.TYPES;
 
 /**
@@ -51,14 +67,10 @@ import static org.xmlpull.v1.XmlPullParser.TYPES;
 public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements SensorEventListener{
     // sockets
     private Context appContext;
-    private static final int port = 11003;
+    private static final int port = 8080;
     private static final String ipAddr = "192.168.1.139";
     private InetAddress addr;
-    private Socket socket;
-
-    //encryption
-    private byte[] key; // encryption key
-    private byte[] iv; // iv
+    private SSLSocket socket;
 
     // for accelerometer stuff
     private boolean overThreshold; // will be true if magnitude of accel data passes threshold
@@ -75,14 +87,6 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
         this.millisToWait = millisToWait;
         overThreshold = false;
         startTime = System.currentTimeMillis();
-
-        // placeholder code for key
-        for(int i = 0; i < key.length; i++){
-            key[i] = (byte)i;
-        }
-        iv = new byte[Constants.IV_BYTES];
-        Random random = new Random();
-        random.nextBytes(iv);
     }
 
     /***********  DO IN BACKGROUND AND HELPERS***********/
@@ -116,8 +120,11 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
                 appContext.getContentResolver(),Settings.Secure.ANDROID_ID);
 
         // do the thing
-        //result = actualScan(tagId, androidId);
-        result = testScan(tagId, androidId);
+        if(Constants.IN_SERVER_MODE) {
+            result = actualScan(tagId, androidId);
+        } else {
+            result = testScan(tagId, androidId);
+        }
         return result;
     }
 
@@ -150,17 +157,54 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     }
 
     /*
-    Opens socket for read/write.
+    Opens an SSL socket for read/write.
     Note that async tasks are run sequentially so we will not be interrupted by work
     for another tag
     */
     private void openSocket(){
         try{
+            SSLContext sslContext = getSSLContext();
+            SSLSocketFactory socketFactory = sslContext.getSocketFactory();
             addr = InetAddress.getByName(ipAddr);
-            socket = new Socket(addr, port);
+            socket = (SSLSocket)socketFactory.createSocket(addr, port);
         } catch (Exception e){
             Log.d("exceptionOpenSocket", e.toString());
         }
+    }
+
+    /*
+    Returns SSLContext that trusts server's certificate
+     */
+    private SSLContext getSSLContext() throws CertificateException, IOException, KeyStoreException,
+    NoSuchAlgorithmException, KeyManagementException{
+
+        // Load CAs from an InputStream
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        InputStream caInput = appContext.getResources().openRawResource(R.raw.certificate);
+        Certificate ca;
+        try {
+            ca = cf.generateCertificate(caInput);
+        } finally {
+            caInput.close();
+        }
+
+        // Create a KeyStore containing our trusted CAs
+        String keyStoreType = KeyStore.getDefaultType();
+        KeyStore keyStore = KeyStore.getInstance(keyStoreType);
+        keyStore.load(null, null);
+        keyStore.setCertificateEntry("ca", ca);
+
+        // Create a TrustManager that trusts the CAs in our KeyStore
+        String tmfAlgorithm = TrustManagerFactory.getDefaultAlgorithm();
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(tmfAlgorithm);
+        tmf.init(keyStore);
+
+        // Create an SSLContext that uses our TrustManager
+        SSLContext context = SSLContext.getInstance("TLSv1");
+        context.init(null, tmf.getTrustManagers(), null);
+
+        return context;
+
     }
 
     /*
@@ -172,6 +216,7 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
         while(currentTime - startTime < millisToWait){
             currentTime = System.currentTimeMillis();
         }
+        sm.unregisterListener(this);
     }
 
     /*
@@ -208,17 +253,10 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
      */
     private void sendString(String toSend){
         try {
-            Cipher cipher = Cipher.getInstance(Constants.CIPHER_TRANSFORMATION);
-            SecretKeySpec secretKeySpec = new SecretKeySpec(key, Constants.ENCRYPTION_ALGO);
-            IvParameterSpec ivParameterSpec = new IvParameterSpec(iv);
-            cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, ivParameterSpec);
-            OutputStream outputStream= socket.getOutputStream();
-            sendIv(outputStream); // send iv unencrypted
-            CipherOutputStream cipherOutputStream = new CipherOutputStream(outputStream, cipher);
-            byte[] messageBytes = toSend.getBytes("UTF-8");
-            cipherOutputStream.write(messageBytes);
-            cipherOutputStream.flush();
-            cipherOutputStream.close();
+            OutputStream outputStream = socket.getOutputStream();
+            PrintWriter printWriter = new PrintWriter(outputStream, true);
+            printWriter.println(toSend);
+            printWriter.close();
             outputStream.close();
         }
         catch (Exception e){
@@ -227,27 +265,17 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     }
 
     /*
-    Sends iv to stream unencrypted
-    MIGHT HAVE TO FORMAT THIS MESSAGE BETTER
-     */
-    public void sendIv(OutputStream outputStream){
-        String ivString = "<iv>" + Arrays.toString(iv) + "</iv><EOF>";
-        PrintWriter printWriter = new PrintWriter(outputStream, true);
-        printWriter.println(ivString);
-        printWriter.close();
-    }
-
-    /*
     Reads resulting message sent back from server.
     Returns: ScanResult object containing resulting info
      */
     private ScanResult readResult(){
         ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+        Log.d("readResult", "in read result");
         try{
             InputStream inputStream = socket.getInputStream();
-            byte[] serverIv = new byte[Constants.IV_BYTES]; // iv server used to encrypt
-            serverIv = getIv(inputStream);
-            String readStr = readString(inputStream, serverIv); // Entire string sent. Should be Xml string
+            Log.d("readResult", "opened input stream");
+            String readStr = readString(inputStream); // Entire string sent. Should be Xml string
+            Log.d("rawXmlStr", readStr);
             inputStream.close();
             result = parseXml(readStr); // parse the Xml string readStr
         } catch (Exception e){
@@ -257,42 +285,17 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     }
 
     /*
-    reads 16 bytes from server and returns them
-     */
-    private byte[] getIv(InputStream inputStream){
-        byte[] iv = new byte[Constants.IV_BYTES];
-        try{
-            // reads into iv
-            if(inputStream.read(iv) != Constants.IV_BYTES){
-                throw(new Exception("incorrect iv length read"));
-            }
-        } catch(Exception e){
-            Log.d("getIv", e.toString());
-        }
-        return iv;
-    }
-
-    /*
     Reads from inputStream until the ASCII end of transmission character is received
     Params: inputStream is stream to read from
-            serverIv is the iv that was used to encode the message
     Returns resulting string
      */
-    private String readString(InputStream inputStream, byte[] serverIv) throws IOException,
-            NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException,
-            InvalidAlgorithmParameterException{
-        Cipher cipher = Cipher.getInstance(Constants.CIPHER_TRANSFORMATION);
-        SecretKeySpec secretKeySpec = new SecretKeySpec(key, Constants.ENCRYPTION_ALGO);
-        IvParameterSpec ivParameterSpec = new IvParameterSpec(serverIv);
-        cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, ivParameterSpec);
-        CipherInputStream cipherInputStream = new CipherInputStream(inputStream, cipher);
+    private String readString(InputStream inputStream) throws IOException{
         StringBuilder readString = new StringBuilder();
         char nextByte = (char) inputStream.read();
-        while (nextByte != (char) Constants.RECEIVE_EOF) {
+        while (nextByte != (char)-1) {
             readString.append(nextByte);
-            nextByte = (char) cipherInputStream.read();
+            nextByte = (char) inputStream.read();
         }
-        Log.d("readTestResult", readString.toString());
         return readString.toString();
     }
 
@@ -381,7 +384,6 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     @Override
     protected void onPostExecute(ScanResult result) {
         super.onPostExecute(result);
-        sm.unregisterListener(this);
         Intent resultIntent = new Intent(Constants.BROADCAST_ACTION_FROM_SERVICE);
         resultIntent.putExtra(Constants.EXTENDED_RESULT_FROM_SERVER, result);
         LocalBroadcastManager.getInstance(appContext).sendBroadcast(resultIntent);
@@ -415,12 +417,12 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
                 "<friendlyName>outlet</friendlyName>" +
                 "<state>2</state>" +
                 "<status>2</status>" +
-                "</ReturnFormat>" + (char)4;
+                "</ReturnFormat>";
         try{
-/*            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
+            InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
             String readStr = readString(inputStream); // Entire string sent. Should be Xml string
-            inputStream.close();*/
-            result = parseXml(fakeInput.substring(0, fakeInput.length()-1));
+            inputStream.close();
+            result = parseXml(readStr);
         } catch (Exception e){
             Log.d("readResult", e.toString());
         }
