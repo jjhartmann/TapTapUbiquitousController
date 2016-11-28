@@ -54,4 +54,14 @@ public class Constants {
     public static final String CIPHER_TRANSFORMATION = "AES/CBC/PKCS5Padding"; // AES 128
     public static final String ENCRYPTION_ALGO = "AES";
     public static final int IV_BYTES = 16;
+
+    /*
+    Different messages
+     */
+    public static final int NO_TAG_ID = 0;
+    // chars allowed in registration password
+
+    // MESAGE TYPES
+    public static final int ACTIVITY_MESSAGE = 0; // scanned a tag
+    public static final int REGISTRATION_MESSAGE = 1; // registering device
 }

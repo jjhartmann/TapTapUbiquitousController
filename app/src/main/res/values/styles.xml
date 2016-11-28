@@ -8,4 +8,16 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <style name="MyAlertDialogTitle">
+        <item name="android:textColor">@color/colorPrimary</item>
+    </style>
+
+    <style name="RegDialogueTheme" parent="@style/AppTheme">
+        <!-- Customize your theme here. -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <item name="android:windowTitleStyle">@style/MyAlertDialogTitle</item>
+    </style>
+
 </resources>

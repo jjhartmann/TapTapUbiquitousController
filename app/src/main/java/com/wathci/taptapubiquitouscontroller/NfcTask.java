@@ -10,6 +10,8 @@ import android.hardware.SensorManager;
 import android.os.AsyncTask;
 import android.provider.Settings;
 import android.support.v4.content.LocalBroadcastManager;
+import android.support.v7.app.AlertDialog;
+import android.support.v7.view.ContextThemeWrapper;
 import android.util.Log;
 import android.util.Xml;
 
@@ -64,7 +66,7 @@ import static org.xmlpull.v1.XmlPullParser.TYPES;
  * Created by Lisa on 11/18/2016.
  */
 
-public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements SensorEventListener{
+public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements SensorEventListener{
     // sockets
     private Context appContext;
     private static final int port = 8080;
@@ -81,6 +83,12 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     SensorManager sm;
     Sensor accelerometer;
 
+    // message type
+    private int messageType; // needs to be global in class because needed by onPostExecute
+
+    // For registration message
+    AlertDialog alertDialog;
+
     public NfcTask(Context context, double threshold, long millisToWait){
         appContext = context;
         this.threshold = threshold;
@@ -92,8 +100,12 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     /***********  DO IN BACKGROUND AND HELPERS***********/
     @Override
     protected ScanResult doInBackground(Integer... params) {
-        setupAccel();
-        return doSocket(params);
+        messageType = params[1];
+        int tagId = params[0];
+        if(messageType == Constants.ACTIVITY_MESSAGE) {
+            setupAccel();
+        }
+        return doSocket(tagId);
     }
 
     /*
@@ -108,14 +120,13 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     /*
     Opens socket, sends data, receives data, returns result.
      */
-    private ScanResult doSocket(Integer[] params){
+    private ScanResult doSocket(int tagId){
 
         // socket stuff
         ScanResult result;
         Log.d("background", "start");
 
-        // actual params
-        int tagId = params[0];
+        // get androidId
         String androidId = Settings.Secure.getString(
                 appContext.getContentResolver(),Settings.Secure.ANDROID_ID);
 
@@ -133,7 +144,10 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
      */
     private ScanResult actualScan(int tagId, String androidId){
         openSocket();
-        waitForAccel();
+
+        if(messageType == Constants.ACTIVITY_MESSAGE) {
+            waitForAccel();
+        }
         Log.d("overThreshold", Boolean.toString(overThreshold));
         String toSend = getStringToSend(tagId, androidId, overThreshold); // get xml string
         sendString(toSend); // send it
@@ -213,7 +227,7 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
      */
     private void waitForAccel(){
         long currentTime = System.currentTimeMillis();
-        while(currentTime - startTime < millisToWait){
+        while (currentTime - startTime < millisToWait) {
             currentTime = System.currentTimeMillis();
         }
         sm.unregisterListener(this);
@@ -227,10 +241,12 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
      */
     private String getStringToSend(int tagId, String androidId, Boolean removedPhone){
         String actionType = getActionType(removedPhone);
+        String actionValue = getActionValue();
+        notifyUser(actionValue);
 
         String result = "<ProtocolFormat>" +
                 "<actionType>" + actionType + "</actionType>" +
-                "<actionValue>" + "0" + "</actionValue>" +
+                "<actionValue>" + actionValue + "</actionValue>" +
                 "<clientID>" + androidId + "</clientID>" +
                 "<tagID>" + Integer.toString(tagId) + "</tagID>" +
                 "</ProtocolFormat>" + "<EOF>";
@@ -238,19 +254,78 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     }
 
     /*
-    Returns actionType associated with the value of removedPhone
+    Returns actionType associated with the value of removedPhone and messageType
      */
     private String getActionType(Boolean removedPhone){
-        if(removedPhone){
-            return "binarySwitch";
-        } else {
-            return "getInfo";
+        // REGISTRATION MESSAGE
+        if(messageType == Constants.REGISTRATION_MESSAGE){
+            return "addDeviceRequest";
+        }
+
+        // ACTIVITY MESSAGE
+        else if(messageType == Constants.ACTIVITY_MESSAGE) {
+            if (removedPhone) {
+                return "binarySwitch";
+            } else {
+                return "getInfo";
+            }
+        }
+        return ""; // SHOULD NEVER GET HERE
+    }
+
+    /*
+    returns action value
+    Returns: for now returns password if messageType is REGISTRATION_MESSAGE
+            Otherwise, returns empty string
+     */
+    private String getActionValue(){
+        if(messageType == Constants.REGISTRATION_MESSAGE){
+            String allowed_chars ="0123456789abcdefghijklmnopqrstuvwxyz" +
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"; // chars allowed in password
+            int passwordLen = 8;
+            StringBuilder password = new StringBuilder();
+            Random random = new Random(); // random number generator
+            for(int i = 0; i < passwordLen; i++){
+                int randomIndex = random.nextInt(allowed_chars.length()); // char index
+                password.append(allowed_chars.charAt(randomIndex));
+            }
+            return password.toString();
+        }
+        return "";
+    }
+
+    /*
+        ACTION: Calls onProgressUpdate to display message to user about entering password
+            on server if the message is a REGISTRATION_MESSAGE
+     */
+    void notifyUser(String password){
+        if(messageType == Constants.REGISTRATION_MESSAGE){
+            String[] passwordArr = {password};
+            publishProgress(passwordArr);
         }
     }
 
     /*
-    Sends toSend to server
+    Invoked on UI thread after call to publishProgress.
+    In this makes popup telling user to enter password on server
      */
+    @Override
+    protected void onProgressUpdate(String... values) {
+        super.onProgressUpdate(values);
+        String password = values[0];
+        AlertDialog.Builder alertBuilder = new AlertDialog.Builder(
+                new ContextThemeWrapper(appContext, R.style.RegDialogueTheme));
+        String alertMessage = "Enter: " + password + "\nin dailogue box on server's screen.\n"
+                + "Press ok on server's screen when finished.";
+        alertBuilder.setMessage(alertMessage).setCancelable(false);
+        alertDialog = alertBuilder.create();
+        alertDialog.setTitle("Registration");
+        alertDialog.show();
+    }
+
+    /*
+        Sends toSend to server
+         */
     private void sendString(String toSend){
         try {
             OutputStream outputStream = socket.getOutputStream();
@@ -384,6 +459,10 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     @Override
     protected void onPostExecute(ScanResult result) {
         super.onPostExecute(result);
+        // If there was an alert dialogue, cancel it now
+        if(alertDialog != null) {
+            alertDialog.cancel();
+        }
         Intent resultIntent = new Intent(Constants.BROADCAST_ACTION_FROM_SERVICE);
         resultIntent.putExtra(Constants.EXTENDED_RESULT_FROM_SERVER, result);
         LocalBroadcastManager.getInstance(appContext).sendBroadcast(resultIntent);
@@ -395,15 +474,21 @@ public class NfcTask extends AsyncTask<Integer, Integer, ScanResult> implements 
     Testing sending and receiving when server is unavailable
      */
     private ScanResult testScan(int tagId, String androidId){
+        // show message dialogue
+        String actionValue = getActionValue();
+        notifyUser(actionValue);
 
-/*        // simulating 3 second delay
-        long startTime = System.currentTimeMillis();
-        long currTime = System.currentTimeMillis();
-        long len = 3000;
-        while(currTime - startTime < len){
-            currTime = System.currentTimeMillis();
-        }*/
-        waitForAccel();
+        if(messageType == Constants.ACTIVITY_MESSAGE) {
+            waitForAccel();
+        } else {
+            // simulating 3 second delay
+            long startTime = System.currentTimeMillis();
+            long currTime = System.currentTimeMillis();
+            long len = 5000;
+            while(currTime - startTime < len){
+                currTime = System.currentTimeMillis();
+            }
+        }
         Log.d("overThreshold", Boolean.toString(overThreshold));
         ScanResult result = readTestResult();
         Log.d("background", "finished");

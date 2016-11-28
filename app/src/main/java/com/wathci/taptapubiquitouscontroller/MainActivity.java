@@ -16,9 +16,13 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.View;
+import android.widget.Button;
 import android.widget.Toast;
 
 import java.io.UnsupportedEncodingException;
+
+import static android.R.attr.id;
 
 public class MainActivity extends AppCompatActivity {
     @Override
@@ -33,6 +37,20 @@ public class MainActivity extends AppCompatActivity {
         if(savedInstanceState == null){
             onNewIntent(getIntent());
         }
+
+        // button stuff
+        Button registerButton = (Button) findViewById(R.id.registration);
+        registerButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // start async task to register device
+                new NfcTask(MainActivity.this, Constants.ACCEL_TRHESHOLD,
+                        Constants.MILLIS_TO_WAIT).execute(
+                        Constants.NO_TAG_ID, Constants.REGISTRATION_MESSAGE);
+
+                // popup message with password
+            }
+        });
     }
 
     @Override
@@ -49,7 +67,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d("tagId", Integer.toString(tagId));
         if (tagId != 0) {
             new NfcTask(getApplicationContext(), Constants.ACCEL_TRHESHOLD,
-                    Constants.MILLIS_TO_WAIT).execute(tagId);
+                    Constants.MILLIS_TO_WAIT).execute(tagId, Constants.ACTIVITY_MESSAGE);
         }
     }
 
