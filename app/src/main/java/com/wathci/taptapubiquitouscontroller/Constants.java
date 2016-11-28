@@ -17,8 +17,11 @@ public class Constants {
     /*
     Service to activity
      */
-    public static final String BROADCAST_ACTION_FROM_SERVICE =
-            "com.wathci.taptapubiquitouscontroller.BROADCAST_FROM_SERVICE";
+    public static final String RETURN_REGISTRATION_FROM_SERVICE =
+            "com.wathci.taptapubiquitouscontroller.REGISTRATION_FROM_SERVICE";
+    public static final String RETURN_SCAN_FROM_SERVICE =
+            "com.wathci.taptapubiquitouscontroller.SCAN_FROM_SERVICE";
+
     public static final String EXTENDED_RESULT_FROM_SERVER =
             "com.wathci.taptapubiquitouscontroller.RESULT_FROM_SERVER";
 
@@ -29,6 +32,13 @@ public class Constants {
     public static final double ACCEL_TRHESHOLD = 0.75;
     // time to wait from scanning tag for movement
     public static final long MILLIS_TO_WAIT = 1000;
+
+    /*
+    Action Types
+     */
+    public static final String ADD_DEVICE = "addDeviceRequest";
+    public static final String BINARY_SWITCH = "binarySwitch";
+    public static final String GET_INFO = "getInfo";
 
     /*
     Device state
@@ -59,9 +69,8 @@ public class Constants {
     Different messages
      */
     public static final int NO_TAG_ID = 0;
-    // chars allowed in registration password
 
-    // MESAGE TYPES
+    // MESSAGE TYPES
     public static final int ACTIVITY_MESSAGE = 0; // scanned a tag
     public static final int REGISTRATION_MESSAGE = 1; // registering device
 }

@@ -8,6 +8,7 @@ import java.io.Serializable;
  */
 
 public class ScanResult implements Serializable{
+    public String actionType; // register, binary, getinfo etc
     public String friendlyName;
     public int state; // use constants from Constants class
     public int status; // success or failure from Constants class

@@ -259,15 +259,15 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     private String getActionType(Boolean removedPhone){
         // REGISTRATION MESSAGE
         if(messageType == Constants.REGISTRATION_MESSAGE){
-            return "addDeviceRequest";
+            return Constants.ADD_DEVICE;
         }
 
         // ACTIVITY MESSAGE
         else if(messageType == Constants.ACTIVITY_MESSAGE) {
             if (removedPhone) {
-                return "binarySwitch";
+                return Constants.BINARY_SWITCH;
             } else {
-                return "getInfo";
+                return Constants.GET_INFO;
             }
         }
         return ""; // SHOULD NEVER GET HERE
@@ -459,11 +459,34 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     @Override
     protected void onPostExecute(ScanResult result) {
         super.onPostExecute(result);
-        // If there was an alert dialogue, cancel it now
-        if(alertDialog != null) {
-            alertDialog.cancel();
+        switch(messageType){
+            case Constants.REGISTRATION_MESSAGE:
+                returnFromRegistration(result);
+                break;
+            case Constants.ACTIVITY_MESSAGE:
+                returnFromActivity(result);
+                break;
         }
-        Intent resultIntent = new Intent(Constants.BROADCAST_ACTION_FROM_SERVICE);
+    }
+
+    /*
+    Handles onPostExecute for REGISTRATION messages.
+    Closes the alert Dialogue and (locally) broadcasts a RETURN_REGISTRATION_FROM_SERVICE message
+     */
+    protected void returnFromRegistration(ScanResult result){
+        alertDialog.cancel();
+        Intent resultIntent = new Intent(Constants.RETURN_REGISTRATION_FROM_SERVICE);
+        resultIntent.putExtra(Constants.EXTENDED_RESULT_FROM_SERVER, result);
+        LocalBroadcastManager.getInstance(appContext).sendBroadcast(resultIntent);
+    }
+
+    /*
+    Handles onPostExecute for ACTIVITY messages
+    (locally) Broadcasts a  RETURN_SCAN_FROM_SERVICE message
+     */
+    protected void returnFromActivity(ScanResult result){
+        Log.d("returnFromActivity", "called");
+        Intent resultIntent = new Intent(Constants.RETURN_SCAN_FROM_SERVICE);
         resultIntent.putExtra(Constants.EXTENDED_RESULT_FROM_SERVER, result);
         LocalBroadcastManager.getInstance(appContext).sendBroadcast(resultIntent);
     }
@@ -490,18 +513,35 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
             }
         }
         Log.d("overThreshold", Boolean.toString(overThreshold));
-        ScanResult result = readTestResult();
+        ScanResult result = readTestResult(tagId);
         Log.d("background", "finished");
         return result;
     }
 
-    private ScanResult readTestResult(){
+    private ScanResult readTestResult(int tagId){
         ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+        String friendlyName = "";
+        if(messageType == Constants.REGISTRATION_MESSAGE){
+            friendlyName = "Registered";
+        } else {
+            if(tagId == 1){
+                friendlyName = "Outlet";
+            } else if(tagId == 2){
+                friendlyName = "Arduino";
+            }
+        }
+
+        int status = 1;
+        if(messageType == Constants.REGISTRATION_MESSAGE){
+            Random random = new Random();
+            status = random.nextInt(2); // will return 0 or 1
+        }
+
         // string to be read
         String fakeInput = "<ReturnFormat>" +
-                "<friendlyName>outlet</friendlyName>" +
-                "<state>2</state>" +
-                "<status>2</status>" +
+                "<friendlyName>" + friendlyName + "</friendlyName>" +
+                "<state>1</state>" +
+                "<status>" + Integer.toString(status) + "</status>" +
                 "</ReturnFormat>";
         try{
             InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
