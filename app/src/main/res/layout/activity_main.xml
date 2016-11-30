@@ -18,14 +18,36 @@
         app:popupTheme="@style/ThemeOverlay.AppCompat.Light"/>
 
     <Button
+        android:text="View Scan Results"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="27dp"
+        android:id="@+id/viewScanResults"
+        android:layout_below="@+id/registration"
+        android:layout_centerHorizontal="true"
+        />
+
+    <TextView
+        android:text="Tap\n   Tap"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/backgroundText"
+        android:textSize="80sp"
+        android:layout_marginTop="49dp"
+        android:textColor="@color/colorAccent"
+        android:fontFamily="sans-serif-thin"
+        android:textAllCaps="false"
+        android:layout_below="@+id/my_toolbar"
+        android:layout_centerHorizontal="true" />
+
+    <Button
         android:text="Register Phone"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="73dp"
         android:id="@+id/registration"
-        android:layout_alignParentTop="true"
+        android:layout_marginTop="46dp"
+        android:layout_below="@+id/backgroundText"
         android:layout_centerHorizontal="true" />
-
 
 
 </RelativeLayout>

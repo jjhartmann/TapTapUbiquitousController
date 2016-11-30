@@ -10,7 +10,7 @@ public class Constants {
     Testing
      */
     // true when actually connecting to server
-    public static final boolean IN_SERVER_MODE = false;
+    public static final boolean IN_SERVER_MODE = true;
     // true when testing, false when not. Use for logs.
     public static final boolean IN_TEST_MODE = true;
 

@@ -7,6 +7,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.icu.text.LocaleDisplayNames;
 import android.os.AsyncTask;
 import android.provider.Settings;
 import android.support.v4.content.LocalBroadcastManager;
@@ -75,6 +76,7 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     private SSLSocket socket;
 
     // for accelerometer stuff
+    private boolean testAccel; // true when acceleration should be tested, false otherwise
     private boolean overThreshold; // will be true if magnitude of accel data passes threshold
     private double threshold; // threshold for magnitude of accel data
     private long millisToWait; // time to wait to detect motion
@@ -89,12 +91,21 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     // For registration message
     AlertDialog alertDialog;
 
-    public NfcTask(Context context, double threshold, long millisToWait){
+    // result
+    ScanResult result;
+
+    /*
+        Params: threshold is
+     */
+    public NfcTask(Context context, boolean testAccel, String actionType){
         appContext = context;
-        this.threshold = threshold;
-        this.millisToWait = millisToWait;
+        this.testAccel = testAccel;
+        this.threshold = Constants.ACCEL_TRHESHOLD;
+        this.millisToWait = Constants.MILLIS_TO_WAIT;
         overThreshold = false;
         startTime = System.currentTimeMillis();
+        result = new ScanResult(actionType, "read error", Constants.DEVICE_OFF,
+                Constants.FAILURE, 0);
     }
 
     /***********  DO IN BACKGROUND AND HELPERS***********/
@@ -102,7 +113,8 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     protected ScanResult doInBackground(Integer... params) {
         messageType = params[1];
         int tagId = params[0];
-        if(messageType == Constants.ACTIVITY_MESSAGE) {
+        result.tagId = tagId;
+        if(testAccel) {
             setupAccel();
         }
         return doSocket(tagId);
@@ -123,7 +135,6 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     private ScanResult doSocket(int tagId){
 
         // socket stuff
-        ScanResult result;
         Log.d("background", "start");
 
         // get androidId
@@ -132,9 +143,9 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
 
         // do the thing
         if(Constants.IN_SERVER_MODE) {
-            result = actualScan(tagId, androidId);
+            actualScan(tagId, androidId);
         } else {
-            result = testScan(tagId, androidId);
+            testScan(tagId, androidId);
         }
         return result;
     }
@@ -142,16 +153,16 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     /*
     Opens socket, send data to server, receives data, returns result
      */
-    private ScanResult actualScan(int tagId, String androidId){
+    private void actualScan(int tagId, String androidId){
         openSocket();
 
-        if(messageType == Constants.ACTIVITY_MESSAGE) {
+        if(testAccel) {
             waitForAccel();
         }
         Log.d("overThreshold", Boolean.toString(overThreshold));
         String toSend = getStringToSend(tagId, androidId, overThreshold); // get xml string
         sendString(toSend); // send it
-        ScanResult result = readResult(); // get result
+        readResult(); // get result
 
         // close socket
         try {
@@ -166,8 +177,6 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
         } else {
             Log.d("background", "socket problem");
         }
-
-        return result;
     }
 
     /*
@@ -214,7 +223,7 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
         tmf.init(keyStore);
 
         // Create an SSLContext that uses our TrustManager
-        SSLContext context = SSLContext.getInstance("TLSv1");
+        SSLContext context = SSLContext.getInstance("TLSv1.2");
         context.init(null, tmf.getTrustManagers(), null);
 
         return context;
@@ -244,12 +253,12 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
         String actionValue = getActionValue();
         notifyUser(actionValue);
 
-        String result = "<ProtocolFormat>" +
+        String result = "<ProtoTapTap>" +
                 "<actionType>" + actionType + "</actionType>" +
                 "<actionValue>" + actionValue + "</actionValue>" +
                 "<clientID>" + androidId + "</clientID>" +
                 "<tagID>" + Integer.toString(tagId) + "</tagID>" +
-                "</ProtocolFormat>" + "<EOF>";
+                "</ProtoTapTap>" + "<EOF>";
         return result;
     }
 
@@ -257,20 +266,25 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     Returns actionType associated with the value of removedPhone and messageType
      */
     private String getActionType(Boolean removedPhone){
-        // REGISTRATION MESSAGE
-        if(messageType == Constants.REGISTRATION_MESSAGE){
-            return Constants.ADD_DEVICE;
-        }
-
-        // ACTIVITY MESSAGE
-        else if(messageType == Constants.ACTIVITY_MESSAGE) {
-            if (removedPhone) {
-                return Constants.BINARY_SWITCH;
-            } else {
-                return Constants.GET_INFO;
+        String actionType = result.actionType; // will be this if doesn't get replaced
+        if(testAccel) {
+            // REGISTRATION MESSAGE
+            if (messageType == Constants.REGISTRATION_MESSAGE) {
+                actionType = Constants.ADD_DEVICE;
             }
+
+            // ACTIVITY MESSAGE
+            else if (messageType == Constants.ACTIVITY_MESSAGE) {
+                if (removedPhone) {
+                    actionType = Constants.BINARY_SWITCH;
+                } else {
+                    actionType = Constants.GET_INFO;
+                }
+            }
+            Log.d("actionType", actionType);
+            result.actionType = actionType;
         }
-        return ""; // SHOULD NEVER GET HERE
+        return actionType;
     }
 
     /*
@@ -299,7 +313,9 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
             on server if the message is a REGISTRATION_MESSAGE
      */
     void notifyUser(String password){
+        Log.d("notifyUser", "called notify");
         if(messageType == Constants.REGISTRATION_MESSAGE){
+            Log.d("notifyUser", "registration message");
             String[] passwordArr = {password};
             publishProgress(passwordArr);
         }
@@ -312,6 +328,7 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     @Override
     protected void onProgressUpdate(String... values) {
         super.onProgressUpdate(values);
+        Log.d("On progress update", "here");
         String password = values[0];
         AlertDialog.Builder alertBuilder = new AlertDialog.Builder(
                 new ContextThemeWrapper(appContext, R.style.RegDialogueTheme));
@@ -343,8 +360,7 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     Reads resulting message sent back from server.
     Returns: ScanResult object containing resulting info
      */
-    private ScanResult readResult(){
-        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+    private void readResult(){
         Log.d("readResult", "in read result");
         try{
             InputStream inputStream = socket.getInputStream();
@@ -352,11 +368,11 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
             String readStr = readString(inputStream); // Entire string sent. Should be Xml string
             Log.d("rawXmlStr", readStr);
             inputStream.close();
-            result = parseXml(readStr); // parse the Xml string readStr
+            parseXml(readStr); // parse the Xml string readStr
         } catch (Exception e){
+            result.actionType = "readError";
             Log.d("readResult", e.toString());
         }
-        return result;
     }
 
     /*
@@ -380,8 +396,7 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
     Returns: Resulting ScanResult object
 
      */
-    private ScanResult parseXml(String readString){
-        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+    private void parseXml(String readString){
         try{
             InputStream inputStream = new ByteArrayInputStream(readString.getBytes());
 
@@ -392,12 +407,12 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
             myParser.setInput(inputStream, null);
 
             // read from parser
-            result = getResult(myParser);
+            getResult(myParser);
             inputStream.close();
         } catch (Exception e){
             Log.d("backgroundReadResult", e.toString());
+            result.actionType = "parseError";
         }
-        return result;
     }
 
     /*
@@ -405,11 +420,7 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
      Reads from parser
      Output: Resulting ScanResult object
      */
-    private ScanResult getResult(XmlPullParser parser) throws XmlPullParserException, IOException{
-        String friendlyName = null;
-        int state = -1;
-        int status = -1;
-
+    private void getResult(XmlPullParser parser) throws XmlPullParserException, IOException{
         parser.nextTag(); // move past start of doc event
         parser.require(XmlPullParser.START_TAG, null, Constants.XML_START_TAG); // start correctly
         while(parser.next() != XmlPullParser.END_TAG){
@@ -427,13 +438,13 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
             parser.next();
             switch(tagName){
                 case "friendlyName":
-                    friendlyName = parser.getText();
+                    result.friendlyName = parser.getText();
                     break;
                 case "state":
-                    state = Integer.parseInt(parser.getText());
+                    result.state = Integer.parseInt(parser.getText());
                     break;
                 case "status":
-                    status = Integer.parseInt(parser.getText());
+                    result.status = Integer.parseInt(parser.getText());
                     break;
                 default:
                     throw new XmlPullParserException( "unexpected tag name: " + tagName);
@@ -452,8 +463,6 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
             }
         }
         parser.require(XmlPullParser.END_TAG, null, Constants.XML_START_TAG); // correct end name
-        ScanResult result = new ScanResult(friendlyName, state, status);
-        return result;
     }
 
     @Override
@@ -496,15 +505,14 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
         /*
     Testing sending and receiving when server is unavailable
      */
-    private ScanResult testScan(int tagId, String androidId){
-        // show message dialogue
-        String actionValue = getActionValue();
-        notifyUser(actionValue);
-
-        if(messageType == Constants.ACTIVITY_MESSAGE) {
+    private void testScan(int tagId, String androidId){
+        if(testAccel) {
             waitForAccel();
-        } else {
-            // simulating 3 second delay
+        }
+        Log.d("overThreshold", Boolean.toString(overThreshold));
+        String toSend = getStringToSend(tagId, androidId, overThreshold);
+        if(messageType == Constants.REGISTRATION_MESSAGE) {
+            // simulating delay
             long startTime = System.currentTimeMillis();
             long currTime = System.currentTimeMillis();
             long len = 5000;
@@ -512,14 +520,11 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
                 currTime = System.currentTimeMillis();
             }
         }
-        Log.d("overThreshold", Boolean.toString(overThreshold));
-        ScanResult result = readTestResult(tagId);
+        readTestResult(tagId, overThreshold);
         Log.d("background", "finished");
-        return result;
     }
 
-    private ScanResult readTestResult(int tagId){
-        ScanResult result = new ScanResult("read error", Constants.DEVICE_OFF, Constants.FAILURE);
+    private void readTestResult(int tagId, boolean overThreshold){
         String friendlyName = "";
         if(messageType == Constants.REGISTRATION_MESSAGE){
             friendlyName = "Registered";
@@ -547,11 +552,10 @@ public class NfcTask extends AsyncTask<Integer, String, ScanResult> implements S
             InputStream inputStream = new ByteArrayInputStream(fakeInput.getBytes());
             String readStr = readString(inputStream); // Entire string sent. Should be Xml string
             inputStream.close();
-            result = parseXml(readStr);
+            parseXml(readStr);
         } catch (Exception e){
             Log.d("readResult", e.toString());
         }
-        return result;
     }
 
     /********** ACCELEROMETER **********/

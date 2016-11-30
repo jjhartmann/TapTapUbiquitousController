@@ -28,6 +28,7 @@ import java.io.UnsupportedEncodingException;
 
 import static android.R.attr.id;
 import static android.R.attr.password;
+import static com.wathci.taptapubiquitouscontroller.R.id.viewScanResults;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -40,7 +41,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         setupToolbar();
         setupBroadcastManager();
-        setupButton();
+        setupButtons();
     }
 
     private void setupToolbar(){
@@ -54,18 +55,27 @@ public class MainActivity extends AppCompatActivity {
                 new IntentFilter(Constants.RETURN_REGISTRATION_FROM_SERVICE));
     }
 
-    private void setupButton(){
-        // button stuff
+    private void setupButtons(){
+        // registration button
         Button registerButton = (Button) findViewById(R.id.registration);
         registerButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 // start async task to register device
-                new NfcTask(MainActivity.this, Constants.ACCEL_TRHESHOLD,
-                        Constants.MILLIS_TO_WAIT).execute(
+                new NfcTask(MainActivity.this, false, "").execute(
                         Constants.NO_TAG_ID, Constants.REGISTRATION_MESSAGE);
 
                 // popup message with password
+            }
+        });
+
+        // View scan results button
+        Button scanResultsButton = (Button) findViewById(R.id.viewScanResults);
+        scanResultsButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(MainActivity.this, ScanActivity.class);
+                startActivity(intent);
             }
         });
     }
